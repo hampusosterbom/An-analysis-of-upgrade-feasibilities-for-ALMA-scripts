@@ -1,0 +1,17 @@
+{
+  "ra_center": "12h00m00.00s",
+  "dec_center": "-23d00m00.00",
+  "freq": "343.5GHz",
+  "n_rings": 3,
+  "central_diameter": 0.0035,
+  "ring_thickness": 0.0035,
+  "ring_spacing": 0.007,
+  "cell_size": 0.0007,
+  "im_shape": [200, 200],
+  "output_base": "ringModel",
+  "log_file": "ring_sky.log",
+
+  "ring_surface_brightness": 3.0,
+  "central_flux": 9.6e-5,
+  "flux": 2.7e-4
+}
