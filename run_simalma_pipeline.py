@@ -1,3 +1,4 @@
+cat > ~/run_simalma_pipeline.py << 'EOF'
 import os
 import json
 import numpy as np
@@ -10,6 +11,7 @@ import logging
 import subprocess
 import math
 
+
 # Logging setup
 def setup_logging(log_file=None):
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -19,49 +21,69 @@ def setup_logging(log_file=None):
         logging.getLogger().addHandler(handler)
 
 # Sky model generation
-def generate_sky_model(dec, sky_script, sky_config_path, casa_bin, overrides=None, output_suffix=None):
-    import json
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+START_DIR  = Path.cwd()
+def generate_sky_model(dec, sky_script, sky_config_path, casa_bin,
+                       overrides=None, output_suffix=None):
     logging.info(f"Generating sky model for declination {dec}")
 
-    base_config_path = Path(sky_config_path)
-    if not base_config_path.exists():
-        raise FileNotFoundError(f"Missing sky config: {base_config_path}")
+    # --- resolve config path robustly ---
+    cfg = Path(sky_config_path)
+    if not cfg.is_absolute():
+        for candidate in (SCRIPT_DIR / cfg, START_DIR / cfg):
+            if candidate.exists():
+                cfg = candidate
+                break
+    if not cfg.exists():
+        raise FileNotFoundError(f"Missing sky config: {cfg}")
 
-    with open(base_config_path) as f:
+    # --- resolve sky generator script path robustly ---
+    sky_py = Path(sky_script)
+    if not sky_py.is_absolute():
+        for candidate in (SCRIPT_DIR / sky_py, START_DIR / sky_py):
+            if candidate.exists():
+                sky_py = candidate
+                break
+    if not sky_py.exists():
+        raise FileNotFoundError(f"Missing sky script: {sky_py}")
+
+    # load base config
+    with open(cfg) as f:
         sky_config = json.load(f)
 
-    # Update declination in a temp copy
+    # update config for this declination
     sky_config["dec_center"] = dec
-
-    # NEW: merge per-config overrides (SB + geometry)
     if overrides:
         sky_config.update(overrides)
 
-    # Build output name from output_base (apply suffix so files don't collide across configs)
+    # ensure unique output base per loop
     output_base = sky_config.get("output_base", "skyModel")
     if output_suffix:
         output_base = f"{output_base}_{output_suffix}"
-        sky_config["output_base"] = output_base  # ensure the generator writes with this base
+    sky_config["output_base"] = output_base
 
+    # build filenames (absolute!)
     tag = dec.replace('-', 'm').replace('+', 'p').replace('d', '').replace('.', '')
-    fitsname = f"{output_base}_dec{tag}.fits"
+    fitsname = (START_DIR / f"{output_base}_dec{tag}.fits").resolve()
+    temp_config_path = (START_DIR / f"skyconfig_{tag}_{output_suffix or 'nosuf'}.json").resolve()
 
-    # Temp config (per-dec) for the sky script
-    temp_config_path = Path(f"skyconfig_{tag}_{output_suffix or 'nosuf'}.json")
     with open(temp_config_path, "w") as f:
         json.dump(sky_config, f, indent=2)
 
-    if Path(fitsname).exists():
-        Path(fitsname).unlink()
+    if fitsname.exists():
+        fitsname.unlink()
 
-    cmd = [casa_bin, '--nogui', '--nologger', '-c', str(sky_script), str(temp_config_path)]
+    # run CASA generator
+    cmd = [casa_bin, "--nogui", "--nologger", "-c", str(sky_py), str(temp_config_path)]
     logging.info(f"Running sky generator with: {cmd}")
     subprocess.run(cmd, check=True)
 
-    if not Path(fitsname).exists():
+    if not fitsname.exists():
         raise RuntimeError(f"Failed to generate sky model {fitsname} after execution.")
 
-    return fitsname
+    # optional: temp_config_path.unlink(missing_ok=True)
+    return str(fitsname)
 
 
 # ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -562,3 +584,6 @@ if __name__ == "__main__":
 
         args = parser.parse_args()
         main(args)
+
+EOF
+chmod +x ~/run_simalma_pipeline.py
